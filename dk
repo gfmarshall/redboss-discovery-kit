@@ -1,0 +1,648 @@
+#!/usr/bin/env python3
+# Red Boss Discovery Kit (DK Core)
+# Copyright 2026 Red Boss
+# Licensed under the Apache License, Version 2.0
+#
+# DISCLAIMER: This tool is provided "as is" without warranty of any kind.
+# It is designed for read-only metadata discovery. Red Boss assumes no liability
+# for its use. Users must ensure compliance with their own security policies.
+
+import argparse
+import json
+import os
+import sys
+import hashlib
+import glob
+import tarfile
+import shutil
+import logging
+import subprocess
+import uuid
+import time
+from pathlib import Path
+from datetime import datetime, timezone
+from typing import List, Dict, Optional, Any, Union
+from concurrent.futures import ThreadPoolExecutor
+
+try:
+    import jsonschema
+    HAS_JSONSCHEMA = True
+except ImportError:
+    HAS_JSONSCHEMA = False
+
+# Attempt to import yaml, fallback to json only if missing
+try:
+    import yaml
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
+
+VERSION = "2.0.0-dk-core"
+
+# Import schemas from co-located module
+try:
+    _dk_dir = Path(os.path.abspath(__file__)).parent
+    _schemas_path = _dk_dir / "schemas.py"
+    if _schemas_path.exists():
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location("schemas", str(_schemas_path))
+        _schemas_mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_schemas_mod)
+        MANIFEST_SCHEMA = _schemas_mod.MANIFEST_SCHEMA
+        SUPPORTED_MANIFEST_VERSIONS = _schemas_mod.SUPPORTED_MANIFEST_VERSIONS
+    else:
+        MANIFEST_SCHEMA = None
+        SUPPORTED_MANIFEST_VERSIONS = [1]
+except Exception:
+    MANIFEST_SCHEMA = None
+    SUPPORTED_MANIFEST_VERSIONS = [1]
+
+class DKError(Exception):
+    """Raised for recoverable errors that should terminate the current command."""
+    pass
+
+# Configure Logging — structured JSON to stderr, human-readable fallback
+class _JsonFormatter(logging.Formatter):
+    """Emits one JSON object per log line with timestamp and correlation ID."""
+    def format(self, record):
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "msg": record.getMessage(),
+            "logger": record.name,
+        }
+        if hasattr(record, "run_id"):
+            entry["run_id"] = record.run_id
+        if record.exc_info and record.exc_info[0] is not None:
+            entry["exc"] = self.formatException(record.exc_info)
+        return json.dumps(entry, default=str)
+
+def _configure_logging(json_mode: bool = True) -> logging.Logger:
+    _logger = logging.getLogger("dk")
+    if _logger.handlers:
+        return _logger
+    handler = logging.StreamHandler(sys.stderr)
+    if json_mode:
+        handler.setFormatter(_JsonFormatter())
+    else:
+        handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    _logger.addHandler(handler)
+    _logger.setLevel(logging.INFO)
+    return _logger
+
+logger = _configure_logging(json_mode=os.environ.get("DK_LOG_FORMAT", "json") == "json")
+
+# Run correlation ID — set once per invocation, threaded through all log entries
+RUN_ID = str(uuid.uuid4())[:12]
+
+class _CorrelatedLoggerAdapter(logging.LoggerAdapter):
+    """Injects run_id into every log record."""
+    def process(self, msg, kwargs):
+        kwargs.setdefault("extra", {})["run_id"] = self.extra.get("run_id", "")
+        return msg, kwargs
+
+logger = _CorrelatedLoggerAdapter(logger, {"run_id": RUN_ID})
+
+class SafetyGuard:
+    """Enforces the safety policy defined in the manifest."""
+    DEFAULT_NEVER_EXPORT = [".jar", ".war", ".ear", ".zip", ".tar", ".tgz", ".gz"]
+
+    def __init__(self, manifest: Dict[str, Any]):
+        self.never_export = manifest.get("safety", {}).get(
+            "never_export_file_types", self.DEFAULT_NEVER_EXPORT
+        )
+
+    def assert_safe_to_write(self, path: Path) -> None:
+        """Raises DKError if the file extension is in the never-export list."""
+        if path.suffix.lower() in self.never_export:
+            raise DKError(
+                f"Safety violation: refusing to export '{path.name}' "
+                f"(extension '{path.suffix}' is in never_export_file_types)"
+            )
+
+    def is_safe_extension(self, path: Path) -> bool:
+        """Returns False if the file extension is in the never-export list."""
+        return path.suffix.lower() not in self.never_export
+
+class HashingUtil:
+    """Utility class for cryptographic file hashing and fingerprinting."""
+    @staticmethod
+    def hash_file(path: Path) -> Optional[str]:
+        """Calculates SHA-256 hash of a file in chunks to minimize memory usage."""
+        sha256_hash = hashlib.sha256()
+        try:
+            with open(path, "rb") as f:
+                for byte_block in iter(lambda: f.read(4096), b""):
+                    sha256_hash.update(byte_block)
+            return sha256_hash.hexdigest()
+        except Exception as e:
+            logger.error(f"Could not hash file {path}: {e}")
+            return None
+
+    @staticmethod
+    def get_fingerprint(path: Path) -> Optional[Dict[str, Any]]:
+        """Generates a metadata fingerprint for a file, including size, mtime, and hash."""
+        if not path.exists():
+            return None
+        stat = path.stat()
+        return {
+            "path": str(path),
+            "size_bytes": stat.st_size,
+            "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            "sha256": HashingUtil.hash_file(path)
+        }
+
+class MetadataGenerator:
+    """Handles the persistence of discovered metadata and safety reports."""
+    def __init__(self, run_out: Path, tool_version: str):
+        self.run_out = run_out
+        self.tool_version = tool_version
+
+    def write_summary(self, instance_out: Path, data: Dict[str, Any]) -> None:
+        """Writes instance-specific summary metadata."""
+        summary_path = instance_out / "summary.json"
+        with open(summary_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def write_fingerprints(self, instance_out: Path, fingerprints: List[Dict[str, Any]]) -> None:
+        """Writes the collection of file fingerprints for an instance."""
+        fingerprints_path = instance_out / "fingerprints.json"
+        with open(fingerprints_path, "w") as f:
+            json.dump(fingerprints, f, indent=2)
+
+    def write_dk_pack(self, data: Dict[str, Any]) -> None:
+        """Writes the global run metadata and safety attestation."""
+        pack_path = self.run_out / "dk-pack.json"
+        with open(pack_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+# Resilience defaults
+SUBPROCESS_TIMEOUT_SECS = int(os.environ.get("DK_SUBPROCESS_TIMEOUT", "300"))
+SUBPROCESS_RETRIES = int(os.environ.get("DK_SUBPROCESS_RETRIES", "2"))
+THREAD_POOL_MAX_WORKERS = int(os.environ.get("DK_MAX_WORKERS", "4"))
+
+class SbomOrchestrator:
+    """Manages the generation of CycloneDX SBOMs using the Syft utility."""
+    def __init__(self, syft_cmd: str, run_out: Path, timeout: int = SUBPROCESS_TIMEOUT_SECS, retries: int = SUBPROCESS_RETRIES):
+        self.syft_cmd = syft_cmd
+        self.run_out = run_out
+        self.timeout = timeout
+        self.retries = retries
+
+    def generate_sbom(self, scope: str, targets: List[Path], output_file: Path, excludes: Optional[List[str]] = None) -> bool:
+        """Invokes Syft to generate an SBOM for the specified targets and scope."""
+        if not targets:
+            return False
+            
+        primary_target = targets[0]
+        cmd = [self.syft_cmd, str(primary_target), "-o", "cyclonedx-json"]
+        
+        if excludes:
+            for ex in excludes:
+                cmd += ["--exclude", ex]
+
+        last_err: Optional[Exception] = None
+        for attempt in range(1, self.retries + 1):
+            try:
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, check=True,
+                    timeout=self.timeout
+                )
+                output_file.write_text(result.stdout)
+                return True
+            except subprocess.TimeoutExpired:
+                last_err = TimeoutError(f"Syft timed out after {self.timeout}s for {scope}")
+                logger.warning(f"Syft timeout for {scope} (attempt {attempt}/{self.retries})")
+            except subprocess.CalledProcessError as e:
+                last_err = e
+                logger.warning(f"Syft failed for {scope} (attempt {attempt}/{self.retries}): {e.stderr}")
+            if attempt < self.retries:
+                time.sleep(min(2 ** attempt, 10))
+
+        logger.error(f"Syft exhausted {self.retries} attempts for {scope} at {primary_target}: {last_err}")
+        return False
+
+class DiscoveryEngine:
+    """Core logic for JBoss Home resolution and Instance discovery."""
+    def __init__(self, manifest: Dict[str, Any]):
+        self.manifest = manifest
+        self.jboss_home = self._resolve_jboss_home(manifest.get("jboss", {}).get("home", ""))
+        self.discovery_cfg = manifest.get("instances", {}).get("discovery", {})
+        self.config_cfg = manifest.get("instances", {}).get("config", {})
+
+    def _resolve_jboss_home(self, home_pattern: str) -> Optional[Path]:
+        """Resolves the JBoss Home directory, supporting globs and verifying markers."""
+        if not home_pattern:
+            return None
+        
+        # Expand user and handle globs
+        expanded_pattern = os.path.expanduser(home_pattern)
+        matches = glob.glob(expanded_pattern, recursive=True)
+        
+        for match in matches:
+            match_path = Path(match).resolve()
+            if match_path.is_dir() and (match_path / "jboss-modules.jar").exists():
+                return match_path
+        
+        # Fallback to the first match if it exists, even if no jar found (with warning)
+        if matches:
+            first_match = Path(matches[0]).resolve()
+            logger.warning(f"JBoss Home candidate {first_match} found but jboss-modules.jar is missing.")
+            return first_match
+            
+        logger.error(f"Could not resolve JBoss Home from pattern: {home_pattern}")
+        return Path(home_pattern).resolve()
+
+    def discover_instances(self) -> List[Dict[str, Any]]:
+        """Discovers standalone instances based on manifest roots, globs, and markers."""
+        instances = []
+        roots = self.discovery_cfg.get("roots", [])
+        globs = self.discovery_cfg.get("instance_globs", ["*"])
+        candidates = self.discovery_cfg.get("base_subdir_candidates", [".", "standalone"])
+        markers = self.discovery_cfg.get("base_markers", ["configuration", "deployments"])
+
+        for root_str in roots:
+            root_path = Path(root_str).expanduser().resolve()
+            if not root_path.is_dir():
+                logger.warning(f"Discovery root not found: {root_path}")
+                continue
+
+            for g in globs:
+                for instance_dir in root_path.glob(g):
+                    if not instance_dir.is_dir():
+                        continue
+                    
+                    resolved = self._resolve_instance(instance_dir, candidates, markers)
+                    if resolved:
+                        instances.append(resolved)
+                    else:
+                        logger.info(f"Skipping {instance_dir} - no valid base markers found.")
+        
+        return instances
+
+    def _resolve_instance(self, instance_dir: Path, candidates: List[str], markers: List[str]) -> Optional[Dict[str, Any]]:
+        """Helper to resolve a specific instance directory using candidate subdirs and markers."""
+        for cand in candidates:
+            cand_path = (instance_dir / cand).resolve()
+            # Check if all markers exist within this candidate path
+            if all((cand_path / m).exists() for m in markers):
+                instance_name = instance_dir.name
+                
+                # Resolve config file
+                selected_config = self._resolve_config(cand_path)
+                
+                return {
+                    "name": instance_name,
+                    "instance_path": str(instance_dir),
+                    "instance_base": str(cand_path),
+                    "selected_config": selected_config,
+                    "jboss_home": str(self.jboss_home)
+                }
+        return None
+
+    def _resolve_config(self, instance_base: Path) -> Optional[str]:
+        """Resolves the active standalone configuration file."""
+        selected = self.config_cfg.get("selected")
+        candidates = self.config_cfg.get("candidates", ["standalone.xml"])
+
+        if selected:
+            sel_path = instance_base / "configuration" / selected
+            if sel_path.exists():
+                return selected
+            else:
+                logger.warning(f"Selected config {selected} not found in {sel_path}")
+
+        for cand in candidates:
+            cand_path = instance_base / "configuration" / cand
+            if cand_path.exists():
+                return cand
+        
+        return None
+
+def load_manifest(path: Union[str, Path]) -> Dict[str, Any]:
+    p = Path(path)
+    if not p.exists():
+        raise DKError(f"Manifest not found: {path}")
+    
+    content = p.read_text()
+    try:
+        if p.suffix.lower() in [".yml", ".yaml"]:
+            if not HAS_YAML:
+                raise DKError("PyYAML is required for YAML manifests. Please install it or use JSON.")
+            data = yaml.safe_load(content)
+        else:
+            data = json.loads(content)
+    except DKError:
+        raise
+    except Exception as e:
+        raise DKError(f"Failed to parse manifest {path}: {e}") from e
+
+    # Manifest version gate
+    mv = data.get("manifest_version")
+    if mv is not None and mv not in SUPPORTED_MANIFEST_VERSIONS:
+        raise DKError(
+            f"Unsupported manifest_version {mv}. "
+            f"This version of DK supports: {SUPPORTED_MANIFEST_VERSIONS}"
+        )
+    return data
+
+def validate_manifest(m: Dict[str, Any]) -> List[str]:
+    """Validates a parsed manifest dict. Returns a list of error messages (empty = valid)."""
+    if HAS_JSONSCHEMA and MANIFEST_SCHEMA is not None:
+        validator = jsonschema.Draft202012Validator(MANIFEST_SCHEMA)
+        return [e.message for e in sorted(validator.iter_errors(m), key=lambda e: list(e.path))]
+
+    # Fallback: basic structural checks when jsonschema is unavailable
+    errors = []
+    required_keys = ["manifest_version", "jboss", "instances"]
+    for k in required_keys:
+        if k not in m:
+            errors.append(f"Missing required top-level key: '{k}'")
+    if "jboss" in m and "home" not in m["jboss"]:
+        errors.append("'jboss' section is missing required key: 'home'")
+    if "instances" in m and "discovery" not in m["instances"]:
+        errors.append("'instances' section is missing required key: 'discovery'")
+    return errors
+
+def cmd_validate(args: argparse.Namespace) -> None:
+    logger.info(f"Validating manifest: {args.manifest}")
+    m = load_manifest(args.manifest)
+    errors = validate_manifest(m)
+    if errors:
+        for err in errors:
+            logger.error(f"  ✘ {err}")
+        raise DKError(f"Manifest validation failed with {len(errors)} error(s).")
+    logger.info("✅ Manifest schema validation passed.")
+
+def cmd_dry_run(args: argparse.Namespace) -> None:
+    logger.info(f"Dry-run for manifest: {args.manifest}")
+    m = load_manifest(args.manifest)
+    engine = DiscoveryEngine(m)
+    instances = engine.discover_instances()
+    
+    logger.info(f"Discovered {len(instances)} instances:")
+    for inst in instances:
+        logger.info(f"  - {inst['name']}")
+        logger.info(f"    Base:   {inst['instance_base']}")
+        logger.info(f"    Config: {inst['selected_config'] or '(none found)'}")
+    logger.info("✅ Dry-run complete.")
+
+def cmd_manifest_convert(args: argparse.Namespace) -> None:
+    """Converts a manifest between YAML and JSON formats."""
+    in_path = Path(args.in_file)
+    if not in_path.exists():
+        raise DKError(f"Input manifest not found: {in_path}")
+
+    content = in_path.read_text()
+
+    # Parse input
+    if in_path.suffix.lower() in [".yml", ".yaml"]:
+        if not HAS_YAML:
+            raise DKError("PyYAML is required for YAML manifests.")
+        data = yaml.safe_load(content)
+        default_suffix = ".json"
+    else:
+        data = json.loads(content)
+        default_suffix = ".yml"
+
+    # Determine output path
+    if args.out_file:
+        out_path = Path(args.out_file)
+    else:
+        out_path = in_path.with_suffix(default_suffix)
+
+    # Write output
+    if out_path.suffix.lower() in [".yml", ".yaml"]:
+        if not HAS_YAML:
+            raise DKError("PyYAML is required for YAML output.")
+        out_path.write_text(yaml.dump(data, sort_keys=False, default_flow_style=False))
+    else:
+        out_path.write_text(json.dumps(data, indent=2) + "\n")
+
+    logger.info(f"✅ Converted {in_path} → {out_path}")
+
+def process_instance(
+    inst: Dict[str, Any], 
+    run_out: Path, 
+    m: Dict[str, Any], 
+    meta_gen: MetadataGenerator, 
+    sbom_orch: SbomOrchestrator
+) -> None:
+    try:
+        inst_name = inst["name"]
+        logger.info(f"  --> Instance: {inst_name}")
+        inst_out = run_out / inst_name
+        inst_out.mkdir(parents=True, exist_ok=True)
+
+        # 1. summary.json
+        summary_data = {
+            "instance_name": inst_name,
+            "instance_base": inst["instance_base"],
+            "selected_config": inst["selected_config"],
+            "jboss_home": inst["jboss_home"],
+            "mode": m.get("jboss", {}).get("mode", "standalone"),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        meta_gen.write_summary(inst_out, summary_data)
+
+        # 2. fingerprints.json
+        fingerprints = []
+        # Hash selected config
+        if inst["selected_config"]:
+            cfg_path = Path(inst["instance_base"]) / "configuration" / inst["selected_config"]
+            fp = HashingUtil.get_fingerprint(cfg_path)
+            if fp: fingerprints.append(fp)
+        
+        # Hash apps (deployments)
+        apps_include = m.get("scan", {}).get("apps_include", ["deployments/**"])
+        for pattern in apps_include:
+            search_path = pattern
+            if not os.path.isabs(pattern):
+                search_path = str(Path(inst["instance_base"]) / pattern)
+            
+            for app_file in glob.glob(search_path, recursive=True):
+                app_path = Path(app_file)
+                if app_path.is_file() and app_path.suffix in [".war", ".ear", ".jar"]:
+                    fp = HashingUtil.get_fingerprint(app_path)
+                    if fp: fingerprints.append(fp)
+        
+        meta_gen.write_fingerprints(inst_out, fingerprints)
+
+        # 3. SBOMs (platform, apps, all)
+        raw_platform_excludes = m.get("scan", {}).get("platform_exclude", ["**/deployments/**", "**/log/**", "**/tmp/**", "**/data/**"])
+        platform_excludes = []
+        for ex in raw_platform_excludes:
+            if not (ex.startswith("./") or ex.startswith("*/") or ex.startswith("**/")):
+                platform_excludes.append(f"**/{ex}")
+            else:
+                platform_excludes.append(ex)
+        
+        logger.info(f"      [{inst_name}] Generating SBOMs...")
+        # Platform SBOM
+        platform_targets = [Path(inst["jboss_home"]), Path(inst["instance_base"])]
+        sbom_orch.generate_sbom("platform", platform_targets, inst_out / "sbom.platform.cdx.json", excludes=platform_excludes)
+        
+        # Apps SBOM
+        app_targets = []
+        for pattern in apps_include:
+            if os.path.isabs(pattern):
+                app_targets.append(Path(pattern))
+            else:
+                app_targets.append(Path(inst["instance_base"]) / pattern.replace("/**", ""))
+        
+        if not app_targets:
+            app_targets = [Path(inst["instance_base"]) / "deployments"]
+            
+        sbom_orch.generate_sbom("apps", app_targets, inst_out / "sbom.apps.cdx.json")
+        
+        # All SBOM
+        sbom_orch.generate_sbom("all", [Path(inst["instance_base"])], inst_out / "sbom.all.cdx.json")
+    except Exception as e:
+        logger.error(f"Unexpected error in process_instance for {inst.get('name', 'unknown')}: {e}", exc_info=True)
+        raise
+
+def cmd_run(args: argparse.Namespace) -> None:
+    logger.info(f"Running DK Core with manifest: {args.manifest}")
+    m = load_manifest(args.manifest)
+    
+    out_dir = Path(args.out).expanduser().resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    
+    run_ts = datetime.now(timezone.utc).strftime("%y%m%d-%H%M")
+    run_out = out_dir / run_ts
+    run_out.mkdir(parents=True, exist_ok=True)
+
+    manifest_input_path = Path(args.manifest)
+    (run_out / f"manifest.input{manifest_input_path.suffix}").write_text(manifest_input_path.read_text())
+    
+    if HAS_YAML and manifest_input_path.suffix.lower() in [".yml", ".yaml"]:
+        (run_out / "manifest.used.json").write_text(json.dumps(m, indent=2))
+    else:
+        if HAS_YAML:
+            (run_out / "manifest.used.yml").write_text(yaml.dump(m, sort_keys=False))
+
+    engine = DiscoveryEngine(m)
+    instances = engine.discover_instances()
+
+    if not instances:
+        raise DKError("No instances discovered. Check manifest roots and globs.")
+
+    logger.info(f"Processing {len(instances)} instances...")
+    
+    meta_gen = MetadataGenerator(run_out, VERSION)
+    syft_cmd = "syft"
+    local_syft = Path(__file__).parent / "bin" / "syft"
+    if local_syft.exists() and os.access(local_syft, os.X_OK):
+        syft_cmd = str(local_syft)
+    
+    sbom_orch = SbomOrchestrator(syft_cmd, run_out)
+    
+    syft_version = "unknown"
+    try:
+        sv_res = subprocess.run([syft_cmd, "version"], capture_output=True, text=True, timeout=30)
+        syft_version = sv_res.stdout.splitlines()[0] if sv_res.stdout else "unknown"
+    except Exception:
+        logger.warning("Could not determine syft version.")
+
+    # Parallel processing of instances — track errors
+    instance_errors: List[Dict[str, str]] = []
+    with ThreadPoolExecutor(max_workers=THREAD_POOL_MAX_WORKERS) as executor:
+        future_to_name = {}
+        for inst in instances:
+            f = executor.submit(process_instance, inst, run_out, m, meta_gen, sbom_orch)
+            future_to_name[f] = inst["name"]
+        
+        for future in future_to_name:
+            try:
+                future.result()
+            except Exception as e:
+                inst_name = future_to_name[future]
+                instance_errors.append({"instance": inst_name, "error": str(e)})
+                logger.error(f"Error processing instance '{inst_name}': {e}")
+
+    # 5. dk-pack.json
+    pack_data = {
+        "tool_version": VERSION,
+        "syft_version": syft_version,
+        "manifest_hash": hashlib.sha256(manifest_input_path.read_bytes()).hexdigest(),
+        "instance_count": len(instances),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "attestation": {
+            "no_binaries_exported": True,
+            "config_files_hashed_only": True,
+            "rules_dir_loaded": args.rules_dir is not None
+        },
+        "instance_errors": instance_errors
+    }
+    meta_gen.write_dk_pack(pack_data)
+
+    logger.info(f"✅ Run complete. Output in: {run_out}")
+
+    if args.archive:
+        archive_path = run_out.with_suffix(".tar.gz")
+        logger.info(f"Archiving evidence to {archive_path}...")
+        try:
+            with tarfile.open(archive_path, "w:gz") as tar:
+                tar.add(run_out, arcname=run_out.name)
+            logger.info("✅ Archive created successfully.")
+        except Exception as e:
+            logger.error(f"Failed to create archive: {e}")
+
+def main():
+    parser = argparse.ArgumentParser(prog="dk", description="Red Boss Discovery Kit (DK Core)")
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
+
+    # dk run
+    run_parser = subparsers.add_parser("run", help="Run discovery and metadata collection")
+    run_parser.add_argument("--manifest", help="Path to manifest (YAML/JSON). Defaults to dk-manifest.yml")
+    run_parser.add_argument("--out", help="Output directory. Defaults to ./generated-evidence/")
+    run_parser.add_argument("--rules-dir", help="Optional rules directory for DK++ hooks")
+    run_parser.add_argument("--archive", action="store_true", help="Package evidence into a compressed tarball")
+
+    # dk dry-run
+    dry_parser = subparsers.add_parser("dry-run", help="Show discovery results without writing evidence")
+    dry_parser.add_argument("--manifest", help="Path to manifest. Defaults to dk-manifest.yml")
+
+    # dk validate-manifest
+    val_parser = subparsers.add_parser("validate-manifest", help="Validate manifest schema")
+    val_parser.add_argument("--manifest", help="Path to manifest. Defaults to dk-manifest.yml")
+
+    # dk manifest convert
+    conv_parser = subparsers.add_parser("manifest", help="Manifest operations")
+    conv_sub = conv_parser.add_subparsers(dest="subcommand")
+    mconv = conv_sub.add_parser("convert", help="Convert manifest format")
+    mconv.add_argument("--in", dest="in_file", required=True, help="Input manifest")
+    mconv.add_argument("--out", dest="out_file", help="Output manifest")
+
+    args = parser.parse_args()
+
+    # Default manifest logic
+    if hasattr(args, 'manifest') and args.manifest is None:
+        if os.path.exists("dk-manifest.yml"):
+            args.manifest = "dk-manifest.yml"
+        elif os.path.exists("dk-manifest.json"):
+            args.manifest = "dk-manifest.json"
+        else:
+            raise DKError("No manifest specified and dk-manifest.yml/json not found in current directory.")
+
+    # Default output directory logic
+    if args.command == "run" and args.out is None:
+        args.out = "generated-evidence"
+
+    if args.command == "run":
+        cmd_run(args)
+    elif args.command == "dry-run":
+        cmd_dry_run(args)
+    elif args.command == "validate-manifest":
+        cmd_validate(args)
+    elif args.command == "manifest" and args.subcommand == "convert":
+        cmd_manifest_convert(args)
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    try:
+        main()
+    except DKError as e:
+        logger.error(str(e))
+        sys.exit(1)

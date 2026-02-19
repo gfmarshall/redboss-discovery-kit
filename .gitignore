@@ -1,0 +1,24 @@
+# Evidence and Outputs
+generated-evidence/
+evidence/
+output/
+dist/
+*.tar.gz
+*.tgz
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# System / IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo

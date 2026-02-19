@@ -1,0 +1,49 @@
+# Default Manifest for Red Boss Discovery Kit
+# Aligned with Red Boss Standard Patterns
+
+manifest_version: 1
+
+jboss:
+  home: "/jboss/jboss-eap-7.3/**" # Handles nested extraction folders via glob
+  mode: "standalone"
+
+instances:
+  discovery:
+    roots:
+      - "/jboss/instances/jboss-eap-7.3/dev"
+    instance_globs:
+      - "*-instance"
+    base_subdir_candidates:
+      - "."
+      - "standalone"
+    base_markers:
+      - "configuration"
+      - "deployments"
+
+  config:
+    candidates:
+      - "standalone.xml"
+      - "standalone-full.xml"
+
+sbom:
+  formats: ["cyclonedx-json"]
+  scopes: ["platform", "apps", "all"]
+
+scan:
+  platform_exclude:
+    - "**/deployments/**"
+    - "**/log/**"
+    - "**/tmp/**"
+    - "**/data/**"
+  apps_include:
+    - "deployments/**"
+
+safety:
+  never_export_file_types:
+    - ".jar"
+    - ".war"
+    - ".ear"
+    - ".zip"
+    - ".tar"
+    - ".tgz"
+    - ".gz"

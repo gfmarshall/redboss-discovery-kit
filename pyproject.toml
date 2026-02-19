@@ -1,0 +1,83 @@
+[project]
+name = "redboss-discovery-kit"
+version = "2.0.0"
+description = "Red Boss Discovery Kit — read-only JBoss metadata discovery and SBOM generation"
+requires-python = ">=3.9"
+license = {text = "Apache-2.0"}
+dependencies = [
+    "PyYAML>=6.0",
+    "jsonschema>=4.18",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+    "pre-commit>=3.0",
+]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = [
+    "--strict-markers",
+    "--tb=short",
+    "-q",
+]
+
+# ---------------------------------------------------------------------------
+# coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["."]
+omit = [
+    "tests/*",
+    "generated-evidence/*",
+    ".git/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 60
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__",
+    "raise NotImplementedError",
+]
+
+# ---------------------------------------------------------------------------
+# ruff — linting & formatting
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "S",    # flake8-bandit (security)
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "S603",   # subprocess call — we validate inputs
+    "S607",   # partial path to executable — syft is expected on PATH
+    "S101",   # assert usage — fine in tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S108"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

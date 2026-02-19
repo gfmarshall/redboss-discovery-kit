@@ -1,0 +1,62 @@
+# Reference Manifest for DK Core (Discovery Kit)
+
+manifest_version: 1
+
+# JBoss installation details
+jboss:
+  home: "/jboss/jboss-eap-7.3"
+  mode: "standalone"
+
+# Discovery configuration for instances
+instances:
+  discovery:
+    roots:
+      - "/jboss/instances/jboss-eap-7.3/dev"
+    instance_globs:
+      - "*"
+    # Ordered candidates for the instance base directory
+    base_subdir_candidates:
+      - "."          # Layout A: .../<instanceName>/configuration
+      - "standalone" # Layout B: .../<instanceName>/standalone/configuration
+    # Markers that must exist for a candidate to be valid
+    base_markers:
+      - "configuration"
+      - "deployments"
+
+  # Configuration file selection
+  config:
+    candidates:
+      - "standalone.xml"
+      - "standalone-full.xml"
+      - "standalone-ha.xml"
+    # selected: "standalone-custom.xml" # Optional explicit override
+
+# SBOM generation settings
+sbom:
+  formats: ["cyclonedx-json"]
+  scopes: ["platform", "apps", "all"]
+
+# Scanning include/exclude patterns
+scan:
+  # Platform scope excludes (relative to jboss.home or instance_base)
+  platform_exclude:
+    - "deployments/**"
+    - "log/**"
+    - "tmp/**"
+    - "data/**"
+
+  # Apps scope includes (relative to instance_base)
+  apps_include:
+    - "deployments/**"
+    # - "/mnt/external/deployments/*.war" # Example absolute override
+
+# Safety and non-export policy
+safety:
+  never_export_file_types:
+    - ".jar"
+    - ".war"
+    - ".ear"
+    - ".zip"
+    - ".tar"
+    - ".tgz"
+    - ".gz"
