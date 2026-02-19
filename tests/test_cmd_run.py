@@ -20,7 +20,6 @@ class TestCmdRun:
         args = argparse.Namespace(
             manifest=str(manifest_file),
             out=str(out_dir),
-            rules_dir=None,
             archive=False,
         )
 
@@ -55,7 +54,6 @@ class TestCmdRun:
         args = argparse.Namespace(
             manifest=str(manifest_file),
             out=str(out_dir),
-            rules_dir=None,
             archive=False,
         )
 
@@ -85,7 +83,7 @@ class TestCmdRun:
 
         args = argparse.Namespace(
             manifest=str(mf), out=str(tmp_path / "out"),
-            rules_dir=None, archive=False,
+            archive=False,
         )
         with pytest.raises(dk.DKError, match="No instances discovered"):
             dk.cmd_run(args)
@@ -97,7 +95,6 @@ class TestCmdRun:
         args = argparse.Namespace(
             manifest=str(manifest_file),
             out=str(out_dir),
-            rules_dir=None,
             archive=True,
         )
 

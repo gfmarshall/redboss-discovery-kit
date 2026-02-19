@@ -416,14 +416,13 @@ cat generated-evidence/260220-1000/myapp-instance/fingerprints.json | python3 -m
 Run full discovery and evidence generation.
 
 ```
-./dk run [--manifest PATH] [--out DIR] [--rules-dir DIR] [--archive]
+./dk run [--manifest PATH] [--out DIR] [--archive]
 ```
 
 | Flag | Default | Description |
 |---|---|---|
 | `--manifest` | `dk-manifest.yml` or `dk-manifest.json` | Path to manifest file |
 | `--out` | `./generated-evidence/` | Output directory |
-| `--rules-dir` | *(none)* | Optional rules directory for DK++ hooks |
 | `--archive` | `false` | Also create a `.tar.gz` archive of the evidence |
 
 ### `dk dry-run`
@@ -494,8 +493,7 @@ The top-level metadata file for the entire run.
   "timestamp": "2026-02-20T10:00:45.735888+00:00",
   "attestation": {
     "no_binaries_exported": true,
-    "config_files_hashed_only": true,
-    "rules_dir_loaded": false
+    "config_files_hashed_only": true
   },
   "instance_errors": []
 }
@@ -684,8 +682,7 @@ Every run records a safety attestation:
 ```json
 "attestation": {
   "no_binaries_exported": true,
-  "config_files_hashed_only": true,
-  "rules_dir_loaded": false
+  "config_files_hashed_only": true
 }
 ```
 

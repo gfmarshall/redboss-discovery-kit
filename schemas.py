@@ -181,8 +181,7 @@ DK_PACK_SCHEMA = {
             "required": ["no_binaries_exported", "config_files_hashed_only"],
             "properties": {
                 "no_binaries_exported": {"type": "boolean"},
-                "config_files_hashed_only": {"type": "boolean"},
-                "rules_dir_loaded": {"type": "boolean"}
+                "config_files_hashed_only": {"type": "boolean"}
             },
             "additionalProperties": False
         },

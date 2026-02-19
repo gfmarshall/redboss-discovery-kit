@@ -570,7 +570,6 @@ def cmd_run(args: argparse.Namespace) -> None:
         "attestation": {
             "no_binaries_exported": True,
             "config_files_hashed_only": True,
-            "rules_dir_loaded": args.rules_dir is not None
         },
         "instance_errors": instance_errors
     }
@@ -596,7 +595,6 @@ def main():
     run_parser = subparsers.add_parser("run", help="Run discovery and metadata collection")
     run_parser.add_argument("--manifest", help="Path to manifest (YAML/JSON). Defaults to dk-manifest.yml")
     run_parser.add_argument("--out", help="Output directory. Defaults to ./generated-evidence/")
-    run_parser.add_argument("--rules-dir", help="Optional rules directory for DK++ hooks")
     run_parser.add_argument("--archive", action="store_true", help="Package evidence into a compressed tarball")
 
     # dk dry-run
