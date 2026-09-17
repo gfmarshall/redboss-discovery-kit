@@ -1,6 +1,7 @@
 """Tests for cmd_run — end-to-end with mocked Syft, manifest convert, and dry-run."""
 import argparse
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -75,6 +76,26 @@ class TestCmdRun:
         pack = json.loads((run_out / "dk-pack.json").read_text())
         assert len(pack["instance_errors"]) == 1
         assert "boom" in pack["instance_errors"][0]["error"]
+
+    def test_cmd_run_records_sbom_failure_as_partial(self, valid_manifest, manifest_file, tmp_path, jboss_env):
+        dk = _dk()
+        out_dir = tmp_path / "evidence"
+        args = argparse.Namespace(
+            manifest=str(manifest_file),
+            out=str(out_dir),
+            archive=True,
+        )
+        version_result = MagicMock(stdout="Version: 1.42.0\n")
+        failure = subprocess.CalledProcessError(1, ["syft"], stderr="failed")
+
+        with patch("subprocess.run", side_effect=[version_result, failure, failure]):
+            exit_code = dk.cmd_run(args)
+
+        assert exit_code == 2
+        run_dir = next(path for path in out_dir.iterdir() if path.is_dir())
+        pack = json.loads((run_dir / "dk-pack.json").read_text())
+        assert "SBOM generation failed" in pack["instance_errors"][0]["error"]
+        assert next(out_dir.glob("*.tar.gz")).is_file()
 
     def test_cmd_run_no_instances_raises(self, tmp_path):
         dk = _dk()

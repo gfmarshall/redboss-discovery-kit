@@ -498,11 +498,16 @@ def process_instance(
                 platform_excludes.append(ex)
         
         logger.info(f"      [{inst_name}] Generating SBOMs...")
-        # Platform SBOM
+        requested_scopes = set(m.get("sbom", {}).get("scopes", ["platform", "apps", "all"]))
         platform_targets = [Path(inst["jboss_home"]), Path(inst["instance_base"])]
-        sbom_orch.generate_sbom("platform", platform_targets, inst_out / "sbom.platform.cdx.json", excludes=platform_excludes)
-        
-        # Apps SBOM
+        if "platform" in requested_scopes and not sbom_orch.generate_sbom(
+            "platform",
+            platform_targets,
+            inst_out / "sbom.platform.cdx.json",
+            excludes=platform_excludes,
+        ):
+            raise DKError("Platform SBOM generation failed")
+
         app_targets = []
         for pattern in apps_include:
             if os.path.isabs(pattern):
@@ -513,10 +518,15 @@ def process_instance(
         if not app_targets:
             app_targets = [Path(inst["instance_base"]) / "deployments"]
             
-        sbom_orch.generate_sbom("apps", app_targets, inst_out / "sbom.apps.cdx.json")
-        
-        # All SBOM
-        sbom_orch.generate_sbom("all", [Path(inst["instance_base"])], inst_out / "sbom.all.cdx.json")
+        if "apps" in requested_scopes and not sbom_orch.generate_sbom(
+            "apps", app_targets, inst_out / "sbom.apps.cdx.json"
+        ):
+            raise DKError("Application SBOM generation failed")
+
+        if "all" in requested_scopes and not sbom_orch.generate_sbom(
+            "all", [Path(inst["instance_base"])], inst_out / "sbom.all.cdx.json"
+        ):
+            raise DKError("Combined SBOM generation failed")
     except Exception as e:
         logger.error(f"Unexpected error in process_instance for {inst.get('name', 'unknown')}: {e}", exc_info=True)
         raise
@@ -624,7 +634,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     return 2 if instance_errors else 0
 
-def main():
+def main(argv: Optional[List[str]] = None):
     parser = argparse.ArgumentParser(prog="dk", description="Red Boss Discovery Kit (DK Core)")
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
@@ -651,7 +661,7 @@ def main():
     mconv.add_argument("--in", dest="in_file", required=True, help="Input manifest")
     mconv.add_argument("--out", dest="out_file", help="Output manifest")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Default manifest logic
     if hasattr(args, 'manifest') and args.manifest is None:
