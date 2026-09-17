@@ -19,6 +19,7 @@ class TestCmdRun:
         assert contract["contractVersion"] == "1.0.0"
         assert contract["exitCodes"] == {"complete": 0, "fatal": 1, "partial": 2}
         assert contract["outputs"]["archive"] == "<out>/<run-id>.tar.gz"
+        assert contract["protectedRulesArgument"] == "--rules-dir"
 
     def test_cmd_run_creates_output_structure(self, valid_manifest, manifest_file, tmp_path, jboss_env):
         dk = _dk()

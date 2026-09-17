@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from dk_rules import ProtectedRulesAdapter, RulesError
+
 try:
     import jsonschema
     HAS_JSONSCHEMA = True
@@ -37,7 +39,7 @@ try:
 except ImportError:
     HAS_YAML = False
 
-VERSION = "2.0.0-dk-core"
+VERSION = "2.1.0-dk-core"
 
 # Import schemas from co-located module
 try:
@@ -49,12 +51,15 @@ try:
         _schemas_mod = _ilu.module_from_spec(_spec)
         _spec.loader.exec_module(_schemas_mod)
         MANIFEST_SCHEMA = _schemas_mod.MANIFEST_SCHEMA
+        DKPP_FACTS_SCHEMA = _schemas_mod.DKPP_FACTS_SCHEMA
         SUPPORTED_MANIFEST_VERSIONS = _schemas_mod.SUPPORTED_MANIFEST_VERSIONS
     else:
         MANIFEST_SCHEMA = None
+        DKPP_FACTS_SCHEMA = None
         SUPPORTED_MANIFEST_VERSIONS = [1]
 except Exception:
     MANIFEST_SCHEMA = None
+    DKPP_FACTS_SCHEMA = None
     SUPPORTED_MANIFEST_VERSIONS = [1]
 
 class DKError(Exception):
@@ -175,6 +180,14 @@ class MetadataGenerator:
         pack_path = self.run_out / "dk-pack.json"
         with open(pack_path, "w") as f:
             json.dump(data, f, indent=2)
+
+    def write_dkpp_facts(self, instance_out: Path, data: Dict[str, Any]) -> None:
+        if DKPP_FACTS_SCHEMA is None:
+            raise DKError("DK++ facts schema is unavailable")
+        jsonschema.Draft202012Validator(DKPP_FACTS_SCHEMA).validate(data)
+        facts_path = instance_out / "facts.dkpp.json"
+        with open(facts_path, "w") as f:
+            json.dump(data, f, indent=2, sort_keys=True)
 
 # Resilience defaults
 SUBPROCESS_TIMEOUT_SECS = int(os.environ.get("DK_SUBPROCESS_TIMEOUT", "300"))
@@ -426,7 +439,8 @@ def process_instance(
     run_out: Path, 
     m: Dict[str, Any], 
     meta_gen: MetadataGenerator, 
-    sbom_orch: SbomOrchestrator
+    sbom_orch: SbomOrchestrator,
+    rules_adapter: Optional[ProtectedRulesAdapter] = None,
 ) -> None:
     try:
         inst_name = inst["name"]
@@ -468,6 +482,12 @@ def process_instance(
         
         meta_gen.write_fingerprints(inst_out, fingerprints)
 
+        if rules_adapter:
+            if not inst["selected_config"]:
+                raise RulesError("DK++ facts require a selected JBoss configuration")
+            config_path = Path(inst["instance_base"]) / "configuration" / inst["selected_config"]
+            meta_gen.write_dkpp_facts(inst_out, rules_adapter.extract(config_path))
+
         # 3. SBOMs (platform, apps, all)
         raw_platform_excludes = m.get("scan", {}).get("platform_exclude", ["**/deployments/**", "**/log/**", "**/tmp/**", "**/data/**"])
         platform_excludes = []
@@ -504,6 +524,14 @@ def process_instance(
 def cmd_run(args: argparse.Namespace) -> int:
     logger.info(f"Running DK Core with manifest: {args.manifest}")
     m = load_manifest(args.manifest)
+    rules_dir = getattr(args, "rules_dir", None)
+    dkpp_enabled = m.get("dkpp", {}).get("enabled") is True
+    if dkpp_enabled != bool(rules_dir):
+        raise DKError("DK++ requires both manifest enablement and --rules-dir")
+    try:
+        rules_adapter = ProtectedRulesAdapter(Path(rules_dir), m) if rules_dir else None
+    except RulesError as exc:
+        raise DKError(str(exc)) from exc
 
     out_dir = Path(args.out).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -554,7 +582,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     with ThreadPoolExecutor(max_workers=THREAD_POOL_MAX_WORKERS) as executor:
         future_to_name = {}
         for inst in instances:
-            f = executor.submit(process_instance, inst, run_out, m, meta_gen, sbom_orch)
+            f = executor.submit(process_instance, inst, run_out, m, meta_gen, sbom_orch, rules_adapter)
             future_to_name[f] = inst["name"]
         
         for future in future_to_name:
@@ -570,6 +598,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         "run_id": run_id,
         "tool_version": VERSION,
         "syft_version": syft_version,
+        "dkpp": rules_adapter.metadata() if rules_adapter else None,
         "manifest_hash": hashlib.sha256(manifest_input_path.read_bytes()).hexdigest(),
         "instance_count": len(instances),
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -604,6 +633,7 @@ def main():
     run_parser.add_argument("--manifest", help="Path to manifest (YAML/JSON). Defaults to dk-manifest.yml")
     run_parser.add_argument("--out", help="Output directory. Defaults to ./generated-evidence/")
     run_parser.add_argument("--run-id", help="Stable run identifier used for deterministic output paths")
+    run_parser.add_argument("--rules-dir", help="Protected DK++ rules directory")
     run_parser.add_argument("--archive", action="store_true", help="Package evidence into a compressed tarball")
 
     # dk dry-run

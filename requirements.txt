@@ -1,4 +1,5 @@
 PyYAML>=6.0
 jsonschema>=4.18
+defusedxml==0.7.1
 # Syft is an external binary dependency, not a python package.
 # See README.md for installation instructions.

@@ -59,6 +59,32 @@ This approach ensures that discovery is deterministic, repeatable, and restricte
 
 Refer to `dk-manifest-reference.yml` for a fully documented schema of all configuration blocks.
 
+### DK++ protected rules
+
+When a manifest explicitly enables DK++, `dk run` requires `--rules-dir`. DK
+validates the pack and selected profile, requires `facts-only` extraction with
+the `strict` redaction policy, and executes only the constrained selector/field
+DSL used by the signed DK++ pack. It does not execute arbitrary XPath or export
+raw XML.
+
+Each instance receives `facts.dkpp.json`, containing allowlisted logical facts,
+counts, pack/ruleset/profile identity, and redaction-policy identity. Sensitive
+fact names are rejected, extracted scalar values pass through strict regex
+scrubbing, and referenced profiles/rules must remain below the protected rules
+directory.
+
+```bash
+./dk run \
+  --manifest dk-manifest.yml \
+  --rules-dir /temporary/decrypted-dkpp \
+  --out generated-evidence \
+  --run-id pipeline-run-host \
+  --archive
+```
+
+DK++ supplies the protected rules directory internally. Normal service-profile
+operators do not select or override it.
+
 ## 5. Execution
 
 ### Validate Manifest
@@ -101,6 +127,7 @@ Each run produces a timestamped directory in `./generated-evidence/` containing:
 - `[instance-name]/`:
     - `summary.json`: Instance metadata (version, path, config).
     - `fingerprints.json`: SHA-256 hashes of all deployments.
+    - `facts.dkpp.json`: allowlisted, strictly redacted logical facts when DK++ is enabled.
     - `sbom.platform.cdx.json`: Platform-scope SBOM.
     - `sbom.apps.cdx.json`: Application-scope SBOM.
     - `sbom.all.cdx.json`: Combined instance SBOM.

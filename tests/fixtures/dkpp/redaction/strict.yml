@@ -1,0 +1,11 @@
+redaction_policy:
+  name: strict
+  inherits: defaults
+  xpaths:
+    - //credential-reference
+  regex_scrub:
+    enabled: true
+    patterns:
+      - "password\\s*=\\s*['\"]?([^'\"\\s>]+)['\"]?"
+      - "secret\\s*=\\s*['\"]?([^'\"\\s>]+)['\"]?"
+      - "token\\s*=\\s*['\"]?([^'\"\\s>]+)['\"]?"

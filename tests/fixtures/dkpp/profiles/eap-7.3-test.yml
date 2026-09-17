@@ -1,0 +1,6 @@
+profile_name: eap-7.3-test
+jboss_version: "7.3"
+extract_groups:
+  - group: datasources
+    xpath_files:
+      - eap-7.3/datasources.xpath

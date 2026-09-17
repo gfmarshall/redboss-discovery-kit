@@ -1,0 +1,8 @@
+redaction_policy:
+  name: defaults
+  xpaths:
+    - //password
+    - //@password
+  regex_scrub:
+    enabled: false
+    patterns: []

@@ -19,6 +19,7 @@
     "fatal": 1,
     "partial": 2
   },
+  "protectedRulesArgument": "--rules-dir",
   "productionLicenseArgument": "--license-file",
   "productionSecretEnvironment": "DK_PLUS_ENGAGEMENT_SECRET",
   "expectedIdentityEnvironment": [

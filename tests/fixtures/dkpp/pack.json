@@ -1,0 +1,7 @@
+{
+  "id": "redboss-dk-plus",
+  "name": "DK++ Test Pack",
+  "ruleset_version": "1.0.0-test",
+  "supported_products": [{"name": "JBoss EAP", "versions": ["7.3"]}],
+  "profiles": ["eap-7.3-test"]
+}

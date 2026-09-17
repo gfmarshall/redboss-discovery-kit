@@ -120,6 +120,29 @@ MANIFEST_SCHEMA = {
                 }
             },
             "additionalProperties": False
+        },
+        "dkpp": {
+            "type": "object",
+            "required": ["enabled", "profile", "extract"],
+            "properties": {
+                "enabled": {"const": True},
+                "profile": {"type": "string", "minLength": 1},
+                "extract": {
+                    "type": "object",
+                    "required": ["mode", "redaction_policy"],
+                    "properties": {
+                        "mode": {"const": "facts-only"},
+                        "redaction_policy": {"const": "strict"}
+                    },
+                    "additionalProperties": False
+                },
+                "drift_payload": {
+                    "type": "object",
+                    "properties": {"enabled": {"type": "boolean"}},
+                    "additionalProperties": False
+                }
+            },
+            "additionalProperties": False
         }
     }
 }
@@ -161,19 +184,93 @@ FINGERPRINTS_SCHEMA = {
     "items": FINGERPRINT_ITEM_SCHEMA
 }
 
+DKPP_FACT_VALUE_SCHEMA = {
+    "oneOf": [
+        {"type": "string"},
+        {"type": "null"},
+        {"type": "array", "items": {"type": "string"}}
+    ]
+}
+
+DKPP_FACTS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "DK++ Facts-Only Extraction",
+    "type": "object",
+    "required": [
+        "schema_version", "pack_id", "ruleset_version", "profile",
+        "redaction_policy", "groups"
+    ],
+    "properties": {
+        "schema_version": {"const": 1},
+        "pack_id": {"const": "redboss-dk-plus"},
+        "ruleset_version": {"type": "string"},
+        "profile": {"type": "string"},
+        "redaction_policy": {"const": "strict"},
+        "groups": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+                "type": "object",
+                "required": ["items", "counts"],
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["kind"],
+                            "properties": {"kind": {"type": "string"}},
+                            "patternProperties": {
+                                "^[A-Za-z][A-Za-z0-9_]*$": DKPP_FACT_VALUE_SCHEMA
+                            },
+                            "additionalProperties": False
+                        }
+                    },
+                    "counts": {
+                        "type": "object",
+                        "patternProperties": {
+                            "^[A-Za-z][A-Za-z0-9_]*$": {
+                                "type": "integer", "minimum": 0
+                            }
+                        },
+                        "additionalProperties": False
+                    }
+                },
+                "additionalProperties": False
+            }
+        }
+    },
+    "additionalProperties": False
+}
+
 DK_PACK_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "DK Pack",
     "description": "Global run metadata and safety attestation.",
     "type": "object",
     "required": [
-        "run_id", "tool_version", "syft_version", "manifest_hash",
+        "run_id", "tool_version", "syft_version", "dkpp", "manifest_hash",
         "instance_count", "timestamp", "attestation", "instance_errors"
     ],
     "properties": {
         "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
         "tool_version": {"type": "string"},
         "syft_version": {"type": "string"},
+        "dkpp": {
+            "oneOf": [
+                {"type": "null"},
+                {
+                    "type": "object",
+                    "required": ["pack_id", "ruleset_version", "profile", "redaction_policy"],
+                    "properties": {
+                        "pack_id": {"const": "redboss-dk-plus"},
+                        "ruleset_version": {"type": "string"},
+                        "profile": {"type": "string"},
+                        "redaction_policy": {"const": "strict"}
+                    },
+                    "additionalProperties": False
+                }
+            ]
+        },
         "manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
         "instance_count": {"type": "integer", "minimum": 0},
         "timestamp": {"type": "string", "format": "date-time"},

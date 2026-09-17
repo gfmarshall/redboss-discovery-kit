@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Protected DK++ `--rules-dir` adapter with strict pack/profile validation,
+  constrained facts-only extraction, defensive redaction, and per-instance
+  `facts.dkpp.json` output.
+- DK++ ruleset identity in `dk-pack.json` and explicit failure when manifest
+  enablement and protected rules are inconsistent.
+- Defused XML parsing and contract/security tests using synthetic protected
+  rules.
+
 ## [2.0.0] - 2026-02-20
 
 ### Added

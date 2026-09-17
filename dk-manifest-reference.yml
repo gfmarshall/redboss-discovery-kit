@@ -60,3 +60,12 @@ safety:
     - ".tar"
     - ".tgz"
     - ".gz"
+
+dkpp:
+  enabled: true
+  profile: "eap-7.3-standalone"
+  extract:
+    mode: "facts-only"
+    redaction_policy: "strict"
+  drift_payload:
+    enabled: false

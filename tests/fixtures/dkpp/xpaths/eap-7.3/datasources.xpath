@@ -1,0 +1,6 @@
+//subsystem[contains(@xmlns, 'urn:jboss:domain:datasources')]//datasource {
+    name: "@pool-name",
+    jndi_name: "@jndi-name",
+    driver: "driver/text()"
+}
+count(//datasource) as datasource_count

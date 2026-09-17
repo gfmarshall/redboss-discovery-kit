@@ -17,6 +17,7 @@ mkdir -p "${STAGING}"
 
 # Include only the files needed to run the tool
 cp "${REPO_ROOT}/dk"                       "${STAGING}/"
+cp "${REPO_ROOT}/dk_rules.py"              "${STAGING}/"
 cp "${REPO_ROOT}/schemas.py"               "${STAGING}/"
 cp "${REPO_ROOT}/requirements.txt"         "${STAGING}/"
 cp "${REPO_ROOT}/dk-manifest.yml"          "${STAGING}/"

@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["id", "name", "ruleset_version", "supported_products", "profiles"],
+  "properties": {
+    "id": {"type": "string"},
+    "name": {"type": "string"},
+    "ruleset_version": {"type": "string"},
+    "supported_products": {"type": "array"},
+    "profiles": {"type": "array", "items": {"type": "string"}}
+  }
+}
