@@ -20,5 +20,10 @@
     "partial": 2
   },
   "productionLicenseArgument": "--license-file",
+  "productionSecretEnvironment": "DK_PLUS_ENGAGEMENT_SECRET",
+  "expectedIdentityEnvironment": [
+    "DK_PLUS_EXPECTED_CUSTOMER",
+    "DK_PLUS_EXPECTED_PROJECT"
+  ],
   "testKeyEnvironment": "DK_PLUS_LICENSE_KEY"
 }
