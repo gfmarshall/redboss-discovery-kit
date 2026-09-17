@@ -15,7 +15,7 @@ MANIFEST_SCHEMA = {
         "manifest_version": {
             "type": "integer",
             "enum": SUPPORTED_MANIFEST_VERSIONS,
-            "description": "Schema version of this manifest."
+            "description": "Schema version of this manifest.",
         },
         "jboss": {
             "type": "object",
@@ -24,15 +24,11 @@ MANIFEST_SCHEMA = {
                 "home": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Path or glob pattern to the JBoss EAP installation."
+                    "description": "Path or glob pattern to the JBoss EAP installation.",
                 },
-                "mode": {
-                    "type": "string",
-                    "enum": ["standalone", "domain"],
-                    "default": "standalone"
-                }
+                "mode": {"type": "string", "enum": ["standalone", "domain"], "default": "standalone"},
             },
-            "additionalProperties": False
+            "additionalProperties": False,
         },
         "instances": {
             "type": "object",
@@ -46,69 +42,48 @@ MANIFEST_SCHEMA = {
                             "type": "array",
                             "items": {"type": "string", "minLength": 1},
                             "minItems": 1,
-                            "description": "Directories to search for JBoss instances."
+                            "description": "Directories to search for JBoss instances.",
                         },
-                        "instance_globs": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "default": ["*"]
-                        },
+                        "instance_globs": {"type": "array", "items": {"type": "string"}, "default": ["*"]},
                         "base_subdir_candidates": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "default": [".", "standalone"]
+                            "default": [".", "standalone"],
                         },
                         "base_markers": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "default": ["configuration", "deployments"]
-                        }
+                            "default": ["configuration", "deployments"],
+                        },
                     },
-                    "additionalProperties": False
+                    "additionalProperties": False,
                 },
                 "config": {
                     "type": "object",
                     "properties": {
-                        "candidates": {
-                            "type": "array",
-                            "items": {"type": "string"}
-                        },
-                        "selected": {
-                            "type": "string"
-                        }
+                        "candidates": {"type": "array", "items": {"type": "string"}},
+                        "selected": {"type": "string"},
                     },
-                    "additionalProperties": False
-                }
+                    "additionalProperties": False,
+                },
             },
-            "additionalProperties": False
+            "additionalProperties": False,
         },
         "sbom": {
             "type": "object",
             "properties": {
-                "formats": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                },
-                "scopes": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                }
+                "formats": {"type": "array", "items": {"type": "string"}},
+                "scopes": {"type": "array", "items": {"type": "string"}},
             },
-            "additionalProperties": False
+            "additionalProperties": False,
         },
         "scan": {
             "type": "object",
             "properties": {
-                "platform_exclude": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                },
-                "apps_include": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                }
+                "platform_exclude": {"type": "array", "items": {"type": "string"}},
+                "apps_include": {"type": "array", "items": {"type": "string"}},
             },
-            "additionalProperties": False
+            "additionalProperties": False,
         },
         "safety": {
             "type": "object",
@@ -116,10 +91,10 @@ MANIFEST_SCHEMA = {
                 "never_export_file_types": {
                     "type": "array",
                     "items": {"type": "string", "pattern": "^\\."},
-                    "description": "File extensions that must never be exported."
+                    "description": "File extensions that must never be exported.",
                 }
             },
-            "additionalProperties": False
+            "additionalProperties": False,
         },
         "dkpp": {
             "type": "object",
@@ -130,21 +105,18 @@ MANIFEST_SCHEMA = {
                 "extract": {
                     "type": "object",
                     "required": ["mode", "redaction_policy"],
-                    "properties": {
-                        "mode": {"const": "facts-only"},
-                        "redaction_policy": {"const": "strict"}
-                    },
-                    "additionalProperties": False
+                    "properties": {"mode": {"const": "facts-only"}, "redaction_policy": {"const": "strict"}},
+                    "additionalProperties": False,
                 },
                 "drift_payload": {
                     "type": "object",
                     "properties": {"enabled": {"type": "boolean"}},
-                    "additionalProperties": False
-                }
+                    "additionalProperties": False,
+                },
             },
-            "additionalProperties": False
-        }
-    }
+            "additionalProperties": False,
+        },
+    },
 }
 
 SUMMARY_SCHEMA = {
@@ -159,9 +131,9 @@ SUMMARY_SCHEMA = {
         "selected_config": {"type": ["string", "null"]},
         "jboss_home": {"type": "string"},
         "mode": {"type": "string", "enum": ["standalone", "domain"]},
-        "timestamp": {"type": "string", "format": "date-time"}
+        "timestamp": {"type": "string", "format": "date-time"},
     },
-    "additionalProperties": False
+    "additionalProperties": False,
 }
 
 FINGERPRINT_ITEM_SCHEMA = {
@@ -171,9 +143,9 @@ FINGERPRINT_ITEM_SCHEMA = {
         "path": {"type": "string"},
         "size_bytes": {"type": "integer", "minimum": 0},
         "mtime": {"type": "string", "format": "date-time"},
-        "sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+        "sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
     },
-    "additionalProperties": False
+    "additionalProperties": False,
 }
 
 FINGERPRINTS_SCHEMA = {
@@ -181,25 +153,18 @@ FINGERPRINTS_SCHEMA = {
     "title": "DK Fingerprints",
     "description": "Collection of SHA-256 fingerprints for deployments and configs.",
     "type": "array",
-    "items": FINGERPRINT_ITEM_SCHEMA
+    "items": FINGERPRINT_ITEM_SCHEMA,
 }
 
 DKPP_FACT_VALUE_SCHEMA = {
-    "oneOf": [
-        {"type": "string"},
-        {"type": "null"},
-        {"type": "array", "items": {"type": "string"}}
-    ]
+    "oneOf": [{"type": "string"}, {"type": "null"}, {"type": "array", "items": {"type": "string"}}]
 }
 
 DKPP_FACTS_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "DK++ Facts-Only Extraction",
     "type": "object",
-    "required": [
-        "schema_version", "pack_id", "ruleset_version", "profile",
-        "redaction_policy", "groups"
-    ],
+    "required": ["schema_version", "pack_id", "ruleset_version", "profile", "redaction_policy", "groups"],
     "properties": {
         "schema_version": {"const": 1},
         "pack_id": {"const": "redboss-dk-plus"},
@@ -219,27 +184,21 @@ DKPP_FACTS_SCHEMA = {
                             "type": "object",
                             "required": ["kind"],
                             "properties": {"kind": {"type": "string"}},
-                            "patternProperties": {
-                                "^[A-Za-z][A-Za-z0-9_]*$": DKPP_FACT_VALUE_SCHEMA
-                            },
-                            "additionalProperties": False
-                        }
+                            "patternProperties": {"^[A-Za-z][A-Za-z0-9_]*$": DKPP_FACT_VALUE_SCHEMA},
+                            "additionalProperties": False,
+                        },
                     },
                     "counts": {
                         "type": "object",
-                        "patternProperties": {
-                            "^[A-Za-z][A-Za-z0-9_]*$": {
-                                "type": "integer", "minimum": 0
-                            }
-                        },
-                        "additionalProperties": False
-                    }
+                        "patternProperties": {"^[A-Za-z][A-Za-z0-9_]*$": {"type": "integer", "minimum": 0}},
+                        "additionalProperties": False,
+                    },
                 },
-                "additionalProperties": False
-            }
-        }
+                "additionalProperties": False,
+            },
+        },
     },
-    "additionalProperties": False
+    "additionalProperties": False,
 }
 
 DK_PACK_SCHEMA = {
@@ -248,8 +207,15 @@ DK_PACK_SCHEMA = {
     "description": "Global run metadata and safety attestation.",
     "type": "object",
     "required": [
-        "run_id", "tool_version", "syft_version", "dkpp", "manifest_hash",
-        "instance_count", "timestamp", "attestation", "instance_errors"
+        "run_id",
+        "tool_version",
+        "syft_version",
+        "dkpp",
+        "manifest_hash",
+        "instance_count",
+        "timestamp",
+        "attestation",
+        "instance_errors",
     ],
     "properties": {
         "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
@@ -265,10 +231,10 @@ DK_PACK_SCHEMA = {
                         "pack_id": {"const": "redboss-dk-plus"},
                         "ruleset_version": {"type": "string"},
                         "profile": {"type": "string"},
-                        "redaction_policy": {"const": "strict"}
+                        "redaction_policy": {"const": "strict"},
                     },
-                    "additionalProperties": False
-                }
+                    "additionalProperties": False,
+                },
             ]
         },
         "manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
@@ -279,23 +245,20 @@ DK_PACK_SCHEMA = {
             "required": ["no_binaries_exported", "config_files_hashed_only"],
             "properties": {
                 "no_binaries_exported": {"type": "boolean"},
-                "config_files_hashed_only": {"type": "boolean"}
+                "config_files_hashed_only": {"type": "boolean"},
             },
-            "additionalProperties": False
+            "additionalProperties": False,
         },
         "instance_errors": {
             "type": "array",
             "items": {
                 "type": "object",
                 "required": ["instance", "error"],
-                "properties": {
-                    "instance": {"type": "string"},
-                    "error": {"type": "string"}
-                },
-                "additionalProperties": False
+                "properties": {"instance": {"type": "string"}, "error": {"type": "string"}},
+                "additionalProperties": False,
             },
-            "description": "Errors encountered during per-instance processing."
-        }
+            "description": "Errors encountered during per-instance processing.",
+        },
     },
-    "additionalProperties": False
+    "additionalProperties": False,
 }

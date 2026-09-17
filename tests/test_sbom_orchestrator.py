@@ -1,13 +1,12 @@
 """Tests for SbomOrchestrator — subprocess timeout, retry, and SBOM generation."""
-import subprocess
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 
-import pytest
+import subprocess
+from unittest.mock import MagicMock, patch
 
 
 def _get_orch_class():
     from conftest import dk
+
     return dk.SbomOrchestrator
 
 
@@ -59,8 +58,7 @@ class TestSbomOrchestratorRetry:
                 raise subprocess.CalledProcessError(1, "syft", stderr="fail")
             return MagicMock(stdout="{}")
 
-        with patch("subprocess.run", side_effect=side_effect), \
-             patch("time.sleep"):
+        with patch("subprocess.run", side_effect=side_effect), patch("time.sleep"):
             result = orch.generate_sbom("apps", [tmp_path], out_file)
 
         assert result is True
@@ -71,8 +69,10 @@ class TestSbomOrchestratorRetry:
         out_file = tmp_path / "sbom.json"
         orch = SbomOrchestrator("syft", tmp_path, timeout=10, retries=2)
 
-        with patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, "syft", stderr="err")), \
-             patch("time.sleep"):
+        with (
+            patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, "syft", stderr="err")),
+            patch("time.sleep"),
+        ):
             result = orch.generate_sbom("all", [tmp_path], out_file)
 
         assert result is False
@@ -83,8 +83,7 @@ class TestSbomOrchestratorRetry:
         out_file = tmp_path / "sbom.json"
         orch = SbomOrchestrator("syft", tmp_path, timeout=1, retries=2)
 
-        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("syft", 1)), \
-             patch("time.sleep"):
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("syft", 1)), patch("time.sleep"):
             result = orch.generate_sbom("platform", [tmp_path], out_file)
 
         assert result is False

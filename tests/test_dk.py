@@ -1,10 +1,9 @@
-import unittest
-import os
-import json
-import sys
-import tempfile
 import importlib.util
+import json
+import tempfile
+import unittest
 from pathlib import Path
+
 
 # Load the extension-less 'dk' script as a module
 def load_dk_module():
@@ -12,14 +11,12 @@ def load_dk_module():
     dk_path = (project_root / "dk").resolve()
     if not dk_path.exists():
         raise FileNotFoundError(f"Could not find dk script at {dk_path}")
-    
-    spec = importlib.util.spec_from_file_location(
-        "dk", str(dk_path),
-        submodule_search_locations=[]
-    )
+
+    spec = importlib.util.spec_from_file_location("dk", str(dk_path), submodule_search_locations=[])
     if spec is None or spec.loader is None:
         # Fallback: explicitly create a spec for extension-less files
         from importlib.machinery import ModuleSpec, SourceFileLoader
+
         loader = SourceFileLoader("dk", str(dk_path))
         spec = ModuleSpec("dk", loader, origin=str(dk_path))
 
@@ -28,6 +25,7 @@ def load_dk_module():
     spec.loader.exec_module(dk_module)
     return dk_module
 
+
 dk = load_dk_module()
 DiscoveryEngine = dk.DiscoveryEngine
 HashingUtil = dk.HashingUtil
@@ -35,16 +33,17 @@ SafetyGuard = dk.SafetyGuard
 DKError = dk.DKError
 validate_manifest = dk.validate_manifest
 
+
 class TestDkCore(unittest.TestCase):
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp(prefix="dk_test_")
         self.test_dir = Path(self._tmpdir)
-        
+
         # Create a mock JBoss Home
         self.jboss_home = self.test_dir / "jboss-home"
         self.jboss_home.mkdir(exist_ok=True)
         (self.jboss_home / "jboss-modules.jar").touch()
-        
+
         # Create a mock Instance
         self.instance_root = self.test_dir / "instances"
         self.instance_root.mkdir(exist_ok=True)
@@ -56,6 +55,7 @@ class TestDkCore(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         if self.test_dir.exists():
             shutil.rmtree(self.test_dir)
 
@@ -86,7 +86,8 @@ class TestDKError(unittest.TestCase):
             dk.load_manifest("/nonexistent/path/manifest.yml")
 
     def test_load_manifest_invalid_json(self):
-        tmpfile = Path(tempfile.mktemp(suffix=".json"))
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as stream:
+            tmpfile = Path(stream.name)
         tmpfile.write_text("{invalid json}")
         try:
             with self.assertRaises(DKError):
@@ -102,11 +103,7 @@ class TestManifestValidation(unittest.TestCase):
         return {
             "manifest_version": 1,
             "jboss": {"home": "/opt/jboss"},
-            "instances": {
-                "discovery": {
-                    "roots": ["/opt/instances"]
-                }
-            }
+            "instances": {"discovery": {"roots": ["/opt/instances"]}},
         }
 
     def test_valid_manifest_passes(self):
@@ -162,7 +159,8 @@ class TestManifestVersionGate(unittest.TestCase):
     """Tests that load_manifest rejects unsupported manifest versions."""
 
     def test_rejects_unsupported_version(self):
-        tmpfile = Path(tempfile.mktemp(suffix=".json"))
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as stream:
+            tmpfile = Path(stream.name)
         data = {"manifest_version": 999, "jboss": {"home": "/x"}, "instances": {"discovery": {"roots": ["/"]}}}
         tmpfile.write_text(json.dumps(data))
         try:
@@ -172,7 +170,8 @@ class TestManifestVersionGate(unittest.TestCase):
             tmpfile.unlink()
 
     def test_accepts_supported_version(self):
-        tmpfile = Path(tempfile.mktemp(suffix=".json"))
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as stream:
+            tmpfile = Path(stream.name)
         data = {"manifest_version": 1, "jboss": {"home": "/x"}, "instances": {"discovery": {"roots": ["/"]}}}
         tmpfile.write_text(json.dumps(data))
         try:
@@ -186,10 +185,7 @@ class TestDiscoveryEngine(TestDkCore):
     """Discovery and resolution tests that inherit the JBoss fixture from TestDkCore."""
 
     def test_jboss_home_resolution(self):
-        manifest = {
-            "jboss": {"home": str(self.jboss_home)},
-            "instances": {"discovery": {}, "config": {}}
-        }
+        manifest = {"jboss": {"home": str(self.jboss_home)}, "instances": {"discovery": {}, "config": {}}}
         engine = DiscoveryEngine(manifest)
         self.assertEqual(engine.jboss_home, self.jboss_home.resolve())
 
@@ -201,10 +197,10 @@ class TestDiscoveryEngine(TestDkCore):
                     "roots": [str(self.instance_root)],
                     "instance_globs": ["*-instance"],
                     "base_subdir_candidates": ["."],
-                    "base_markers": ["configuration", "deployments"]
+                    "base_markers": ["configuration", "deployments"],
                 },
-                "config": {"candidates": ["standalone.xml"]}
-            }
+                "config": {"candidates": ["standalone.xml"]},
+            },
         }
         engine = DiscoveryEngine(manifest)
         instances = engine.discover_instances()

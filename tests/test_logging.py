@@ -1,12 +1,12 @@
 """Tests for structured JSON logging and correlation IDs."""
+
 import json
 import logging
-
-import pytest
 
 
 def _dk():
     from conftest import dk
+
     return dk
 
 
@@ -21,8 +21,13 @@ class TestStructuredLogging:
         dk = _dk()
         formatter = dk._JsonFormatter()
         record = logging.LogRecord(
-            name="dk", level=logging.INFO, pathname="", lineno=0,
-            msg="test message", args=(), exc_info=None,
+            name="dk",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="test message",
+            args=(),
+            exc_info=None,
         )
         record.run_id = "abc123"
         output = formatter.format(record)
@@ -39,11 +44,17 @@ class TestStructuredLogging:
             raise ValueError("boom")
         except ValueError:
             import sys
+
             exc_info = sys.exc_info()
 
         record = logging.LogRecord(
-            name="dk", level=logging.ERROR, pathname="", lineno=0,
-            msg="err", args=(), exc_info=exc_info,
+            name="dk",
+            level=logging.ERROR,
+            pathname="",
+            lineno=0,
+            msg="err",
+            args=(),
+            exc_info=exc_info,
         )
         output = formatter.format(record)
         parsed = json.loads(output)

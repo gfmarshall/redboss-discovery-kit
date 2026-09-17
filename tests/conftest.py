@@ -1,15 +1,14 @@
 """Shared pytest fixtures for the Red Boss Discovery Kit test suite."""
-import json
-import shutil
-import tempfile
+
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
 
 
 # ---------------------------------------------------------------------------
-# Module loader – import the extension-less `dk` script as a Python module
+# Module loader - import the extension-less `dk` script as a Python module
 # ---------------------------------------------------------------------------
 def _load_dk_module():
     project_root = Path(__file__).parent.parent
@@ -17,11 +16,10 @@ def _load_dk_module():
     if not dk_path.exists():
         raise FileNotFoundError(f"Could not find dk script at {dk_path}")
 
-    spec = importlib.util.spec_from_file_location(
-        "dk", str(dk_path), submodule_search_locations=[]
-    )
+    spec = importlib.util.spec_from_file_location("dk", str(dk_path), submodule_search_locations=[])
     if spec is None or spec.loader is None:
         from importlib.machinery import ModuleSpec, SourceFileLoader
+
         loader = SourceFileLoader("dk", str(dk_path))
         spec = ModuleSpec("dk", loader, origin=str(dk_path))
 
@@ -82,9 +80,7 @@ def valid_manifest(jboss_env):
             },
             "config": {"candidates": ["standalone.xml"]},
         },
-        "safety": {
-            "never_export_file_types": [".jar", ".war", ".ear", ".zip", ".tar", ".tgz", ".gz"]
-        },
+        "safety": {"never_export_file_types": [".jar", ".war", ".ear", ".zip", ".tar", ".tgz", ".gz"]},
     }
 
 

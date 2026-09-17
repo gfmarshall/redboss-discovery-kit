@@ -1,4 +1,5 @@
 """Tests for cmd_run — end-to-end with mocked Syft, manifest convert, and dry-run."""
+
 import argparse
 import json
 import subprocess
@@ -10,6 +11,7 @@ import pytest
 
 def _dk():
     from conftest import dk
+
     return dk
 
 
@@ -112,7 +114,8 @@ class TestCmdRun:
         (tmp_path / "empty").mkdir()
 
         args = argparse.Namespace(
-            manifest=str(mf), out=str(tmp_path / "out"),
+            manifest=str(mf),
+            out=str(tmp_path / "out"),
             archive=False,
         )
         with pytest.raises(dk.DKError, match="No instances discovered"):
@@ -128,14 +131,16 @@ class TestCmdRun:
             archive=True,
         )
 
-        fake_result = MagicMock(stdout='{}')
+        fake_result = MagicMock(stdout="{}")
         with patch("subprocess.run", return_value=fake_result):
             dk.cmd_run(args)
 
         tarballs = list(out_dir.glob("*.tar.gz"))
         assert len(tarballs) == 1
 
-    def test_cmd_run_uses_explicit_run_id_for_deterministic_paths(self, valid_manifest, manifest_file, tmp_path, jboss_env):
+    def test_cmd_run_uses_explicit_run_id_for_deterministic_paths(
+        self, valid_manifest, manifest_file, tmp_path, jboss_env
+    ):
         dk = _dk()
         out_dir = tmp_path / "evidence"
         args = argparse.Namespace(
@@ -145,7 +150,7 @@ class TestCmdRun:
             archive=True,
         )
 
-        fake_result = MagicMock(stdout='{}')
+        fake_result = MagicMock(stdout="{}")
         with patch("subprocess.run", return_value=fake_result):
             exit_code = dk.cmd_run(args)
 
