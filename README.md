@@ -116,7 +116,19 @@ All output artifacts are validated against JSON Schemas defined in `schemas.py`.
 | `DK_SUBPROCESS_RETRIES` | `2` | Number of retry attempts for failed Syft calls. |
 | `DK_MAX_WORKERS` | `4` | Maximum parallel threads for instance processing. |
 
-## 8. Development
+## 8. Pipeline runtime contract
+
+The JBoss Code Drop 5 integration uses DK/DK++ Runtime Contract v1. Pipeline
+runs supply `--run-id` to produce deterministic `<out>/<run-id>/` output and
+`<out>/<run-id>.tar.gz`. Exit code `0` means complete, `1` means fatal, and `2`
+means collection completed with one or more `instance_errors`. The machine-
+readable conformance fixture is `tests/contracts/dk-runtime-v1.json`.
+
+DK Core owns observed evidence and does not interpret deployment context. The
+calling automation binds the evidence archive to deployment context in a
+separate signed publication envelope.
+
+## 9. Development
 
 ```bash
 pip install -e ".[dev]"

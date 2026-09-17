@@ -8,21 +8,21 @@
 # for its use. Users must ensure compliance with their own security policies.
 
 import argparse
-import json
-import os
-import sys
-import hashlib
 import glob
-import tarfile
-import shutil
+import hashlib
+import json
 import logging
+import os
+import re
 import subprocess
-import uuid
+import sys
+import tarfile
 import time
-from pathlib import Path
-from datetime import datetime, timezone
-from typing import List, Dict, Optional, Any, Union
+import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 try:
     import jsonschema
@@ -501,16 +501,21 @@ def process_instance(
         logger.error(f"Unexpected error in process_instance for {inst.get('name', 'unknown')}: {e}", exc_info=True)
         raise
 
-def cmd_run(args: argparse.Namespace) -> None:
+def cmd_run(args: argparse.Namespace) -> int:
     logger.info(f"Running DK Core with manifest: {args.manifest}")
     m = load_manifest(args.manifest)
-    
+
     out_dir = Path(args.out).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    
-    run_ts = datetime.now(timezone.utc).strftime("%y%m%d-%H%M")
-    run_out = out_dir / run_ts
-    run_out.mkdir(parents=True, exist_ok=True)
+
+    run_id = getattr(args, "run_id", None) or datetime.now(timezone.utc).strftime("%y%m%d-%H%M")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", run_id):
+        raise DKError("Run ID must match ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+    run_out = out_dir / run_id
+    try:
+        run_out.mkdir(parents=False, exist_ok=False)
+    except FileExistsError as e:
+        raise DKError(f"Run output already exists: {run_out}") from e
 
     manifest_input_path = Path(args.manifest)
     (run_out / f"manifest.input{manifest_input_path.suffix}").write_text(manifest_input_path.read_text())
@@ -562,6 +567,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     # 5. dk-pack.json
     pack_data = {
+        "run_id": run_id,
         "tool_version": VERSION,
         "syft_version": syft_version,
         "manifest_hash": hashlib.sha256(manifest_input_path.read_bytes()).hexdigest(),
@@ -585,7 +591,9 @@ def cmd_run(args: argparse.Namespace) -> None:
                 tar.add(run_out, arcname=run_out.name)
             logger.info("✅ Archive created successfully.")
         except Exception as e:
-            logger.error(f"Failed to create archive: {e}")
+            raise DKError(f"Failed to create archive: {e}") from e
+
+    return 2 if instance_errors else 0
 
 def main():
     parser = argparse.ArgumentParser(prog="dk", description="Red Boss Discovery Kit (DK Core)")
@@ -595,6 +603,7 @@ def main():
     run_parser = subparsers.add_parser("run", help="Run discovery and metadata collection")
     run_parser.add_argument("--manifest", help="Path to manifest (YAML/JSON). Defaults to dk-manifest.yml")
     run_parser.add_argument("--out", help="Output directory. Defaults to ./generated-evidence/")
+    run_parser.add_argument("--run-id", help="Stable run identifier used for deterministic output paths")
     run_parser.add_argument("--archive", action="store_true", help="Package evidence into a compressed tarball")
 
     # dk dry-run
@@ -628,7 +637,7 @@ def main():
         args.out = "generated-evidence"
 
     if args.command == "run":
-        cmd_run(args)
+        return cmd_run(args)
     elif args.command == "dry-run":
         cmd_dry_run(args)
     elif args.command == "validate-manifest":
@@ -640,7 +649,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main() or 0)
     except DKError as e:
         logger.error(str(e))
         sys.exit(1)

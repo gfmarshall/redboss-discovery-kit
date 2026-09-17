@@ -1,0 +1,24 @@
+{
+  "contractVersion": "1.0.0",
+  "command": "run",
+  "requiredArguments": [
+    "--manifest",
+    "--out",
+    "--run-id",
+    "--archive",
+    "--license-file"
+  ],
+  "runIdPattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+  "outputs": {
+    "runDirectory": "<out>/<run-id>",
+    "pack": "<out>/<run-id>/dk-pack.json",
+    "archive": "<out>/<run-id>.tar.gz"
+  },
+  "exitCodes": {
+    "complete": 0,
+    "fatal": 1,
+    "partial": 2
+  },
+  "productionLicenseArgument": "--license-file",
+  "testKeyEnvironment": "DK_PLUS_LICENSE_KEY"
+}

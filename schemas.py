@@ -167,10 +167,11 @@ DK_PACK_SCHEMA = {
     "description": "Global run metadata and safety attestation.",
     "type": "object",
     "required": [
-        "tool_version", "syft_version", "manifest_hash",
+        "run_id", "tool_version", "syft_version", "manifest_hash",
         "instance_count", "timestamp", "attestation", "instance_errors"
     ],
     "properties": {
+        "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
         "tool_version": {"type": "string"},
         "syft_version": {"type": "string"},
         "manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},

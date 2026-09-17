@@ -1,8 +1,8 @@
 """Tests for cmd_run — end-to-end with mocked Syft, manifest convert, and dry-run."""
-import json
 import argparse
+import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -13,6 +13,13 @@ def _dk():
 
 
 class TestCmdRun:
+    def test_runtime_contract_fixture(self):
+        contract_path = Path(__file__).parent / "contracts" / "dk-runtime-v1.json"
+        contract = json.loads(contract_path.read_text())
+        assert contract["contractVersion"] == "1.0.0"
+        assert contract["exitCodes"] == {"complete": 0, "fatal": 1, "partial": 2}
+        assert contract["outputs"]["archive"] == "<out>/<run-id>.tar.gz"
+
     def test_cmd_run_creates_output_structure(self, valid_manifest, manifest_file, tmp_path, jboss_env):
         dk = _dk()
         out_dir = tmp_path / "evidence"
@@ -59,8 +66,9 @@ class TestCmdRun:
 
         # Make process_instance blow up
         with patch.object(dk, "process_instance", side_effect=RuntimeError("boom")):
-            dk.cmd_run(args)
+            exit_code = dk.cmd_run(args)
 
+        assert exit_code == 2
         run_dirs = [d for d in out_dir.iterdir() if d.is_dir()]
         run_out = run_dirs[0]
         pack = json.loads((run_out / "dk-pack.json").read_text())
@@ -104,6 +112,52 @@ class TestCmdRun:
 
         tarballs = list(out_dir.glob("*.tar.gz"))
         assert len(tarballs) == 1
+
+    def test_cmd_run_uses_explicit_run_id_for_deterministic_paths(self, valid_manifest, manifest_file, tmp_path, jboss_env):
+        dk = _dk()
+        out_dir = tmp_path / "evidence"
+        args = argparse.Namespace(
+            manifest=str(manifest_file),
+            out=str(out_dir),
+            run_id="ado-12345-dc1dev356",
+            archive=True,
+        )
+
+        fake_result = MagicMock(stdout='{}')
+        with patch("subprocess.run", return_value=fake_result):
+            exit_code = dk.cmd_run(args)
+
+        assert exit_code == 0
+        assert (out_dir / "ado-12345-dc1dev356" / "dk-pack.json").exists()
+        assert (out_dir / "ado-12345-dc1dev356.tar.gz").exists()
+        pack = json.loads((out_dir / "ado-12345-dc1dev356" / "dk-pack.json").read_text())
+        assert pack["run_id"] == "ado-12345-dc1dev356"
+
+    def test_cmd_run_rejects_invalid_run_id(self, manifest_file, tmp_path):
+        dk = _dk()
+        args = argparse.Namespace(
+            manifest=str(manifest_file),
+            out=str(tmp_path / "evidence"),
+            run_id="../escape",
+            archive=False,
+        )
+
+        with pytest.raises(dk.DKError, match="Run ID must match"):
+            dk.cmd_run(args)
+
+    def test_cmd_run_rejects_existing_run_output(self, valid_manifest, manifest_file, tmp_path, jboss_env):
+        dk = _dk()
+        out_dir = tmp_path / "evidence"
+        (out_dir / "duplicate").mkdir(parents=True)
+        args = argparse.Namespace(
+            manifest=str(manifest_file),
+            out=str(out_dir),
+            run_id="duplicate",
+            archive=False,
+        )
+
+        with pytest.raises(dk.DKError, match="Run output already exists"):
+            dk.cmd_run(args)
 
 
 class TestCmdDryRun:
