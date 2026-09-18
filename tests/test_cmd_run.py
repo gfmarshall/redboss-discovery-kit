@@ -146,7 +146,7 @@ class TestCmdRun:
         args = argparse.Namespace(
             manifest=str(manifest_file),
             out=str(out_dir),
-            run_id="ado-12345-dc1dev356",
+            run_id="ado-1.1.1-12345-dc1dev356",
             archive=True,
         )
 
@@ -155,10 +155,10 @@ class TestCmdRun:
             exit_code = dk.cmd_run(args)
 
         assert exit_code == 0
-        assert (out_dir / "ado-12345-dc1dev356" / "dk-pack.json").exists()
-        assert (out_dir / "ado-12345-dc1dev356.tar.gz").exists()
-        pack = json.loads((out_dir / "ado-12345-dc1dev356" / "dk-pack.json").read_text())
-        assert pack["run_id"] == "ado-12345-dc1dev356"
+        assert (out_dir / "ado-1.1.1-12345-dc1dev356" / "dk-pack.json").exists()
+        assert (out_dir / "ado-1.1.1-12345-dc1dev356.tar.gz").exists()
+        pack = json.loads((out_dir / "ado-1.1.1-12345-dc1dev356" / "dk-pack.json").read_text())
+        assert pack["run_id"] == "ado-1.1.1-12345-dc1dev356"
 
     def test_cmd_run_rejects_invalid_run_id(self, manifest_file, tmp_path):
         dk = _dk()

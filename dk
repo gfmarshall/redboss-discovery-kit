@@ -623,7 +623,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     logger.info(f"✅ Run complete. Output in: {run_out}")
 
     if args.archive:
-        archive_path = run_out.with_suffix(".tar.gz")
+        archive_path = Path(f"{run_out}.tar.gz")
         logger.info(f"Archiving evidence to {archive_path}...")
         try:
             with tarfile.open(archive_path, "w:gz") as tar:
