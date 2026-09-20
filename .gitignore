@@ -6,6 +6,7 @@ dist/
 *.tar.gz
 *.tgz
 *.zip
+/body-double-apps/
 
 # Python
 __pycache__/
