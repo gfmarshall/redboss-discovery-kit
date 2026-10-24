@@ -648,6 +648,46 @@ def cmd_run(args: argparse.Namespace) -> int:
                 instance_errors.append({"instance": inst_name, "error": str(e)})
                 logger.error(f"Error processing instance '{inst_name}': {e}")
 
+    # 4b. ADR-0020 wiring corpus — first-class pack artifacts under
+    # <run_out>/wiring/, manifest-gated by the `wiring:` section.
+    wiring_status = None
+    wiring_cfg = m.get("wiring") or {}
+    if wiring_cfg.get("enabled"):
+        try:
+            _dk_root = str(Path(__file__).resolve().parent)
+            if _dk_root not in sys.path:
+                sys.path.insert(0, _dk_root)
+            import dk_wiring
+            rc = dk_wiring.emit(
+                m,
+                run_out,
+                host=wiring_cfg["host"],
+                collection_mode=wiring_cfg.get("collection_mode", "live"),
+                locator_key_env=wiring_cfg.get(
+                    "locator_key_env", "RB_WIRING_LOCATOR_KEY"
+                ),
+                locator_key_file=wiring_cfg.get("locator_key_file"),
+            )
+        except SystemExit as e:
+            rc = 1
+            logger.error(f"Wiring corpus emission aborted: {e}")
+        except Exception as e:
+            rc = 1
+            logger.error(f"Wiring corpus emission raised: {e}")
+        wiring_manifest = run_out / "wiring" / "wiring-manifest.json"
+        wiring_status = {
+            "status": "emitted" if rc == 0 else "failed",
+            "manifest_sha256": (
+                HashingUtil.hash_file(wiring_manifest)
+                if wiring_manifest.is_file()
+                else None
+            ),
+        }
+        if rc != 0:
+            instance_errors.append(
+                {"instance": "<wiring>", "error": "wiring corpus emission failed"}
+            )
+
     # 5. dk-pack.json
     pack_data = {
         "run_id": run_id,
@@ -662,6 +702,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             "config_files_hashed_only": True,
         },
         "instance_errors": instance_errors,
+        "wiring": wiring_status,
     }
     meta_gen.write_dk_pack(pack_data)
 

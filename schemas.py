@@ -96,6 +96,34 @@ MANIFEST_SCHEMA = {
             },
             "additionalProperties": False,
         },
+        "wiring": {
+            "type": "object",
+            "required": ["enabled", "host"],
+            "properties": {
+                "enabled": {"const": True},
+                "host": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Attested host identity recorded in the wiring manifest.",
+                },
+                "collection_mode": {
+                    "type": "string",
+                    "enum": ["live", "offline-staged"],
+                    "default": "live",
+                },
+                "locator_key_env": {
+                    "type": "string",
+                    "default": "RB_WIRING_LOCATOR_KEY",
+                    "description": "Env var holding the engagement locator key.",
+                },
+                "locator_key_file": {"type": "string"},
+                "insecure_unkeyed": {
+                    "const": False,
+                    "description": "Unkeyed locators are dev/test only and never manifest-enablable; use RB_WIRING_CORPUS_UNKEYED=1 explicitly.",
+                },
+            },
+            "additionalProperties": False,
+        },
         "dkpp": {
             "type": "object",
             "required": ["enabled", "profile", "extract"],
@@ -216,6 +244,7 @@ DK_PACK_SCHEMA = {
         "timestamp",
         "attestation",
         "instance_errors",
+        "wiring",
     ],
     "properties": {
         "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
@@ -258,6 +287,21 @@ DK_PACK_SCHEMA = {
                 "additionalProperties": False,
             },
             "description": "Errors encountered during per-instance processing.",
+        },
+        "wiring": {
+            "oneOf": [
+                {"type": "null"},
+                {
+                    "type": "object",
+                    "required": ["status", "manifest_sha256"],
+                    "properties": {
+                        "status": {"type": "string", "enum": ["emitted", "failed"]},
+                        "manifest_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+                    },
+                    "additionalProperties": False,
+                },
+            ],
+            "description": "ADR-0020 wiring-corpus emission status; the corpus itself lives under <run>/wiring/.",
         },
     },
     "additionalProperties": False,

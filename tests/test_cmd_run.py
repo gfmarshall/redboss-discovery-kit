@@ -237,3 +237,67 @@ class TestCmdManifestConvert:
         args = argparse.Namespace(in_file=str(tmp_path / "nope.json"), out_file=None)
         with pytest.raises(dk.DKError, match="Input manifest not found"):
             dk.cmd_manifest_convert(args)
+
+
+class TestWiringCorpus:
+    """S44-02: manifest-gated wiring corpus emitted in-pack (ADR-0020)."""
+
+    def test_wiring_corpus_in_pack(self, valid_manifest, manifest_file,
+                                   tmp_path, jboss_env, monkeypatch):
+        dk = _dk()
+        monkeypatch.setenv("RB_WIRING_CORPUS_UNKEYED", "1")
+        valid_manifest["wiring"] = {"enabled": True, "host": "test-host"}
+        manifest_file.write_text(json.dumps(valid_manifest, indent=2))
+        out_dir = tmp_path / "evidence"
+        args = argparse.Namespace(manifest=str(manifest_file),
+                                  out=str(out_dir), archive=False)
+        fake_result = MagicMock(stdout='{"bomFormat":"CycloneDX"}')
+        with patch("subprocess.run", return_value=fake_result):
+            rc = dk.cmd_run(args)
+        assert rc == 0
+        run_out = [d for d in out_dir.iterdir() if d.is_dir()][0]
+        wiring = run_out / "wiring"
+        for artifact in ("module-graph.json", "platform-fingerprints.json",
+                         "wiring-manifest.json"):
+            assert (wiring / artifact).is_file(), artifact
+        assert (wiring / "app1-instance" / "server-roots.json").is_file()
+        assert (wiring / "app1-instance" /
+                "deployment-wiring.json").is_file()
+        manifest_doc = json.loads(
+            (wiring / "wiring-manifest.json").read_text())
+        assert manifest_doc["host"] == "test-host"
+        assert manifest_doc["artifact"] == "wiring-manifest"
+        pack = json.loads((run_out / "dk-pack.json").read_text())
+        assert pack["wiring"]["status"] == "emitted"
+        assert pack["wiring"]["manifest_sha256"]
+
+    def test_wiring_disabled_means_no_corpus(self, valid_manifest,
+                                             manifest_file, tmp_path,
+                                             jboss_env):
+        dk = _dk()
+        out_dir = tmp_path / "evidence"
+        args = argparse.Namespace(manifest=str(manifest_file),
+                                  out=str(out_dir), archive=False)
+        fake_result = MagicMock(stdout='{"bomFormat":"CycloneDX"}')
+        with patch("subprocess.run", return_value=fake_result):
+            rc = dk.cmd_run(args)
+        assert rc == 0
+        run_out = [d for d in out_dir.iterdir() if d.is_dir()][0]
+        assert not (run_out / "wiring").exists()
+        pack = json.loads((run_out / "dk-pack.json").read_text())
+        assert pack["wiring"] is None
+
+    def test_wiring_manifest_schema_section(self, valid_manifest):
+        dk = _dk()
+        m = dict(valid_manifest)
+        m["wiring"] = {"enabled": True, "host": "h"}
+        assert dk.validate_manifest(m) == []
+        # missing host fails
+        bad = dict(valid_manifest)
+        bad["wiring"] = {"enabled": True}
+        assert dk.validate_manifest(bad)
+        # insecure_unkeyed is never manifest-enablable
+        worse = dict(valid_manifest)
+        worse["wiring"] = {"enabled": True, "host": "h",
+                           "insecure_unkeyed": True}
+        assert dk.validate_manifest(worse)
