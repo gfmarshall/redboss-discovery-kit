@@ -221,6 +221,15 @@ DKPP_FACTS_SCHEMA = {
                         "patternProperties": {"^[A-Za-z][A-Za-z0-9_]*$": {"type": "integer", "minimum": 0}},
                         "additionalProperties": False,
                     },
+                    "sensitivity": {
+                        "type": "object",
+                        "patternProperties": {
+                            "^[A-Za-z][A-Za-z0-9_]*$": {
+                                "enum": ["structural", "locator", "secret-shaped"]
+                            }
+                        },
+                        "additionalProperties": False,
+                    },
                 },
                 "additionalProperties": False,
             },

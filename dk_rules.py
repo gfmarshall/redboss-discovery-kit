@@ -63,7 +63,7 @@ class ProtectedRulesAdapter:
         r"^(?P<name>[A-Za-z][A-Za-z0-9-]*)(?:\[contains\(@xmlns,\s*['\"](?P<namespace>[^'\"]+)['\"]\)\])?$"
     )
     _field = re.compile(r'^([A-Za-z][A-Za-z0-9_]*)\s*:\s*"([^"]+)"\s*,?$')
-    _count = re.compile(r"^count\(//([A-Za-z][A-Za-z0-9-]*)\)\s+as\s+([A-Za-z][A-Za-z0-9_]*)$")
+    _count = re.compile(r"^count\(//([A-Za-z][A-Za-z0-9-]*(?:/[A-Za-z][A-Za-z0-9-]*)*)\)\s+as\s+([A-Za-z][A-Za-z0-9_]*)$")
     _sensitive_field = re.compile(r"password|secret|token|credential|access_key", re.IGNORECASE)
 
     def __init__(self, rules_dir: Path, manifest: dict[str, Any]):
@@ -137,8 +137,8 @@ class ProtectedRulesAdapter:
             }
         return policy
 
-    def _load_groups(self) -> dict[str, list[str]]:
-        groups: dict[str, list[str]] = {}
+    def _load_groups(self) -> dict[str, dict[str, Any]]:
+        groups: dict[str, dict[str, Any]] = {}
         for entry in self.profile.get("extract_groups", []):
             group = entry["group"]
             if group in groups:
@@ -150,7 +150,10 @@ class ProtectedRulesAdapter:
                     rules.append(path.read_text(encoding="utf-8"))
                 except OSError as exc:
                     raise RulesError("DK++ extraction rules could not be loaded") from exc
-            groups[group] = rules
+            groups[group] = {
+                "documents": rules,
+                "sensitivity": entry.get("sensitivity", {}),
+            }
         if not groups:
             raise RulesError("DK++ profile contains no extraction groups")
         return groups
@@ -178,17 +181,20 @@ class ProtectedRulesAdapter:
             **self.metadata(),
             "groups": {},
         }
-        for group, rule_documents in self.groups.items():
+        for group, spec in self.groups.items():
             items: list[dict[str, Any]] = []
             counts: dict[str, int] = {}
-            for document in rule_documents:
+            for document in spec["documents"]:
                 document_items, document_counts = self._evaluate_document(root, document)
                 items.extend(document_items)
                 for name, value in document_counts.items():
                     if name in counts:
                         raise RulesError("DK++ extraction rules contain a duplicate count")
                     counts[name] = value
-            extracted["groups"][group] = {"items": items, "counts": counts}
+            group_out: dict[str, Any] = {"items": items, "counts": counts}
+            if spec["sensitivity"]:
+                group_out["sensitivity"] = spec["sensitivity"]
+            extracted["groups"][group] = group_out
         return extracted
 
     def _evaluate_document(
@@ -216,7 +222,20 @@ class ProtectedRulesAdapter:
             if not match:
                 raise RulesError("DK++ extraction rule syntax is unsupported")
             tag, alias = match.groups()
-            counts[alias] = sum(1 for element in root.iter() if _local_name(element.tag) == tag)
+            # Path counts: first step is descendant scope, later steps
+            # are child steps — count the elements the path reaches.
+            segments = tag.split("/")
+            current = [root]
+            for index, segment in enumerate(segments):
+                current = [
+                    child
+                    for parent in current
+                    for child in (
+                        parent.iter() if index == 0 else list(parent)
+                    )
+                    if _local_name(child.tag) == segment
+                ]
+            counts[alias] = len(current)
         return items, counts
 
     def _parse_fields(self, body: str) -> list[tuple[str, str]]:
@@ -269,13 +288,26 @@ class ProtectedRulesAdapter:
     def _field_value(self, element: ElementTree.Element, expression: str) -> Any:
         if expression.startswith("@"):
             return element.attrib.get(expression[1:])
-        match = re.fullmatch(r"([A-Za-z][A-Za-z0-9-]*)(?:/(text\(\)|@[A-Za-z][A-Za-z0-9-]*))", expression)
+        # Multi-segment child path, child-step semantics at every level:
+        #   a/b/text()  — text of b children nested under a children
+        #   a/b/@attr   — attr of b children nested under a children
+        match = re.fullmatch(
+            r"((?:[A-Za-z][A-Za-z0-9-]*/)*[A-Za-z][A-Za-z0-9-]*)/(text\(\)|@[A-Za-z][A-Za-z0-9-]*)",
+            expression,
+        )
         if not match:
             raise RulesError("DK++ fact value expression is unsupported")
-        child_name, accessor = match.groups()
-        children = [child for child in list(element) if _local_name(child.tag) == child_name]
+        child_path, accessor = match.groups()
+        current = [element]
+        for segment in child_path.split("/"):
+            current = [
+                child
+                for parent in current
+                for child in list(parent)
+                if _local_name(child.tag) == segment
+            ]
         values = [
-            (child.text or "").strip() if accessor == "text()" else child.attrib.get(accessor[1:]) for child in children
+            (child.text or "").strip() if accessor == "text()" else child.attrib.get(accessor[1:]) for child in current
         ]
         values = [value for value in values if value is not None]
         if not values:
